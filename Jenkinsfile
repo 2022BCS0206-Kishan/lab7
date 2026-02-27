@@ -10,14 +10,26 @@ pipeline {
     stages {
 
         stage('Pull Image') {
-            steps {
-                script {
-                    echo "2022BCS0206: Pulling Docker image from Docker Hub..."
-                    sh "docker pull ${DOCKER_IMAGE}"
-                    echo "2022BCS0206: Image pulled successfully."
-                }
+    steps {
+        script {
+            echo "2022BCS0206: Checking Docker image locally..."
+            def imageExists = sh(
+                script: "docker images -q 2022bcs0206kishan/wine_predict_jenkins:latest",
+                returnStdout: true
+            ).trim()
+
+            if (imageExists) {
+                echo "2022BCS0206: Image already available locally: ${imageExists}"
+                echo "2022BCS0206: Skipping pull due to network constraints."
+            } else {
+                echo "2022BCS0206: Image not found locally. Attempting pull..."
+                sh "docker pull 2022bcs0206kishan/wine_predict_jenkins:latest"
             }
+            echo "2022BCS0206: Image ready."
         }
+    }
+}
+
 
         stage('Run Container') {
             steps {
