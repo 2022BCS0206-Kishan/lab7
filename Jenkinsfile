@@ -10,26 +10,14 @@ pipeline {
     stages {
 
         stage('Pull Image') {
-    steps {
-        script {
-            echo "2022BCS0206: Checking Docker image locally..."
-            def imageExists = sh(
-                script: "docker images -q 2022bcs0206kishan/wine_predict_jenkins:latest",
-                returnStdout: true
-            ).trim()
-
-            if (imageExists) {
-                echo "2022BCS0206: Image already available locally: ${imageExists}"
-                echo "2022BCS0206: Skipping pull due to network constraints."
-            } else {
-                echo "2022BCS0206: Image not found locally. Attempting pull..."
-                sh "docker pull 2022bcs0206kishan/wine_predict_jenkins:latest"
+            steps {
+                script {
+                    echo "2022BCS0206: Pulling Docker image from Docker Hub..."
+                    sh "docker pull ${DOCKER_IMAGE}"
+                    echo "2022BCS0206: Image pulled successfully."
+                }
             }
-            echo "2022BCS0206: Image ready."
         }
-    }
-}
-
 
         stage('Run Container') {
             steps {
@@ -43,6 +31,7 @@ pipeline {
                             -p ${API_PORT}:${API_PORT} \
                             ${DOCKER_IMAGE}
                     """
+                    // Get the container's IP address
                     def containerIP = sh(
                         script: "docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' ${CONTAINER_NAME}",
                         returnStdout: true
@@ -89,14 +78,14 @@ pipeline {
         stage('Send Valid Inference Request') {
             steps {
                 script {
-                    echo "2022BCS0206: Sending valid inference request to ${env.API_URL}/wrong_endpoint..."
+                    echo "2022BCS0206: Sending valid inference request to ${env.API_URL}/predict..."
 
                     def response = sh(
                         script: """curl -s -w "\\nHTTP_STATUS:%{http_code}" \
                             -X POST \
                             -H "Content-Type: application/json" \
                             -d '{"fixed_acidity":7.4,"volatile_acidity":0.70,"citric_acid":0.00,"residual_sugar":1.9,"chlorides":0.076,"free_sulfur_dioxide":11.0,"total_sulfur_dioxide":34.0,"density":0.9978,"pH":3.51,"sulphates":0.56,"alcohol":9.4}' \
-                            ${env.API_URL}/wrong_endpoint""",
+                            ${env.API_URL}/predict""",
                         returnStdout: true
                     ).trim()
 
@@ -110,18 +99,20 @@ pipeline {
                     echo "2022BCS0206: HTTP Status: ${httpStatus}"
 
                     if (httpStatus != "200") {
-                        error("2022BCS0206: INDUCED FAILURE - Wrong endpoint used. Expected HTTP 200, got ${httpStatus}. Pipeline FAILED intentionally.")
+                        error("2022BCS0206: Valid request FAILED. Expected HTTP 200, got ${httpStatus}")
                     }
                     echo "2022BCS0206: ✓ HTTP Status check PASSED: ${httpStatus}"
 
                     if (!body.contains("wine_quality")) {
                         error("2022BCS0206: Valid request FAILED. 'wine_quality' field missing in response.")
                     }
+                    echo "2022BCS0206: ✓ Prediction field check PASSED: 'wine_quality' found"
 
                     def predMatch = body =~ /"wine_quality"\s*:\s*(\d+)/
                     if (!predMatch) {
                         error("2022BCS0206: Valid request FAILED. 'wine_quality' value is not numeric.")
                     }
+                    echo "2022BCS0206: ✓ Numeric value check PASSED: wine_quality = ${predMatch[0][1]}"
                     echo "2022BCS0206: ✓ ALL valid request validations PASSED"
                 }
             }
@@ -141,6 +132,8 @@ pipeline {
                         returnStdout: true
                     ).trim()
 
+                    echo "2022BCS0206: Raw response: ${response}"
+
                     def parts = response.split("HTTP_STATUS:")
                     def body = parts[0].trim()
                     def httpStatus = parts[1].trim()
@@ -156,6 +149,7 @@ pipeline {
                     if (!body.contains("detail") && !body.contains("error") && !body.contains("value")) {
                         error("2022BCS0206: Invalid request test FAILED. Error message is not meaningful.")
                     }
+                    echo "2022BCS0206: ✓ Meaningful error message check PASSED"
                     echo "2022BCS0206: ✓ ALL invalid request validations PASSED"
                 }
             }
@@ -187,6 +181,13 @@ pipeline {
                 script {
                     echo "================================================"
                     echo "2022BCS0206: PIPELINE RESULT SUMMARY"
+                    echo "================================================"
+                    echo "2022BCS0206: ✓ Stage 1 - Pull Image         : PASSED"
+                    echo "2022BCS0206: ✓ Stage 2 - Run Container      : PASSED"
+                    echo "2022BCS0206: ✓ Stage 3 - Service Readiness  : PASSED"
+                    echo "2022BCS0206: ✓ Stage 4 - Valid Request      : PASSED"
+                    echo "2022BCS0206: ✓ Stage 5 - Invalid Request    : PASSED"
+                    echo "2022BCS0206: ✓ Stage 6 - Stop Container     : PASSED"
                     echo "================================================"
                     echo "2022BCS0206: ALL VALIDATIONS PASSED - PIPELINE SUCCESS"
                     echo "================================================"
